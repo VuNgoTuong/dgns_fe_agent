@@ -1,0 +1,110 @@
+# stages:
+#   - backup
+#   - deploy
+# variables:
+#   SOURCE_PATH: "FE_QTTS02"
+# backup:
+#   stage: backup
+#   script:
+#     - $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+#     - $backupFileName = "source_backup_$timestamp.zip"
+#     - $sourcePath = "E:\DELOY\FE_QTTS02"
+#     - $backupPath = "E:\DELOY\FE_QTTS02\backup\$backupFileName"
+#     - $filesToBackup = Get-ChildItem -Path $sourcePath -Exclude "backup"
+#     - if ($filesToBackup.Count -gt 0) {
+#         Compress-Archive -Path $filesToBackup -DestinationPath $backupPath } else { Write-Host "No files to backup. Exiting without creating the archive."       exit 0 }
+#   only:
+#     - main
+
+# deploy:
+#   stage: deploy
+#   script:
+#     - npm i
+#     - npm run build
+#     - xcopy /E /I /H /K /Y dist\* E:\DELOY\FE_QTTS02\
+#   only:
+#     - main
+
+
+# stages:
+#   - backup
+#   - deploy
+
+# variables:
+#   SOURCE_PATH: "DELOY"
+#   SERVER_IP: "10.10.81.131"
+
+# backup:
+#   stage: backup
+#   script:
+#     - $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+#     - $backupFileName = "source_backup_$timestamp.zip"
+#     - $sourcePath = "\\$env:SERVER_IP\$env:SOURCE_PATH\FE_QTTS02"
+#     - $backupPath = "\\$env:SERVER_IP\$env:SOURCE_PATH\FE_QTTS02\backup\$backupFileName"
+#     - $filesToBackup = Get-ChildItem -Path $sourcePath -Exclude "backup"
+#     - if ($filesToBackup.Count -gt 0) {
+#         Compress-Archive -Path $filesToBackup -DestinationPath $backupPath  } else {  Write-Host "No files to backup. Exiting without creating the archive."
+#         exit 0 }
+#   only:
+#     - main
+
+# deploy:
+#   stage: deploy
+#   script:
+#     # - npm i
+#     - npm run build
+#     - xcopy /E /I /H /K /Y dist\* "\\$env:SERVER_IP\$env:SOURCE_PATH\FE_QTTS02"
+#   only:
+#     - main
+
+
+
+
+stages:
+  - sonarqube-check
+  - sonarqube-vulnerability-report
+
+# Job để kiểm tra SonarQube
+sonarqube-check:
+  stage: sonarqube-check
+  script: 
+    - |
+      Invoke-WebRequest -Uri "https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-6.0.0.4432-windows.zip" -OutFile "sonar-scanner-cli-6.0.0.4432-windows.zip"
+      Expand-Archive -Path "sonar-scanner-cli-6.0.0.4432-windows.zip" -DestinationPath "."
+      $env:PATH = "$env:PATH;$PWD\sonar-scanner-6.0.0.4432-windows\bin"
+      sonar-scanner -D"sonar.login=$env:SONAR_TOKEN"
+
+  variables:
+    SONAR_USER_HOME: "${CI_PROJECT_DIR}/.sonar"
+    GIT_DEPTH: "0"  
+
+  cache:
+    key: "${CI_JOB_NAME}"
+    paths:
+      - .sonar/cache
+
+  allow_failure: true
+  only:
+    - dev_vu
+
+# Job để tạo báo cáo lỗ hổng từ SonarQube
+sonarqube-vulnerability-report:
+  stage: sonarqube-vulnerability-report
+  script:
+    - |
+      $token = [System.Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes("${SONAR_TOKEN}:"))
+      $url = "${SONAR_HOST_URL}/api/issues/gitlab_sast_export?projectKey=root_thaco-dgns-fe-agent_0b4e9fb7-b885-4fe8-b416-51fae4388b29&branch=${CI_COMMIT_BRANCH}&pullRequest=${CI_MERGE_REQUEST_IID}"
+      Invoke-WebRequest -Uri $url -Headers @{Authorization=("Basic $token")} -OutFile gl-sast-sonar-report.json
+
+  allow_failure: true
+  only:
+    - dev_vu
+
+  artifacts:
+    paths:
+      - gl-sast-sonar-report.json
+
+  dependencies:
+    - sonarqube-check
+
+
